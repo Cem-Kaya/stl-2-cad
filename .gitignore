@@ -16,3 +16,4 @@ stl-to-step-ga-hybrid/tmp-*/
 # Local test meshes and other non-repo inputs
 input/*
 !input/3d-enclosure-for-xiao-bus-servo-adapter-bottom.stl
+!input/3d-enclosure-for-xiao-bus-servo-adapter-top.stl
