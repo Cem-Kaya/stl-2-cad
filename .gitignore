@@ -7,8 +7,12 @@ __pycache__/
 Thumbs.db
 
 # Runtime and temporary outputs
+output/
 stl-to-step-voxel/ui-output/
 stl-to-step-voxel/gradio-cache/
+stl-to-step-ga-hybrid/run-output/
+stl-to-step-ga-hybrid/tmp-*/
 
 # Local test meshes and other non-repo inputs
-input/
+input/*
+!input/3d-enclosure-for-xiao-bus-servo-adapter-bottom.stl
