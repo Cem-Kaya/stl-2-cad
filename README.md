@@ -5,6 +5,8 @@ This repo now has two separate tracks:
 - [`stl-to-step-voxel`](./stl-to-step-voxel): the current working voxel and slice-band reconstruction workflow
 - [`stl-to-step-ga-hybrid`](./stl-to-step-ga-hybrid): the next-gen genetic-algorithm plus local-optimization approach
 
+Local test meshes belong in the git-ignored `input/` folder at the repo root.
+
 ## Before / After
 
 The `before` image below is the original STL mesh. The `after` image is the current voxel-based reconstruction preview.
@@ -21,7 +23,7 @@ More images:
 Use [`stl-to-step-voxel`](./stl-to-step-voxel) if you want to:
 
 - run the current fitter
-- inspect the sample STL and the current reconstruction
+- inspect your local STL inputs and the current reconstruction
 - use the Gradio UI
 
 Use [`stl-to-step-ga-hybrid`](./stl-to-step-ga-hybrid) if you want to:

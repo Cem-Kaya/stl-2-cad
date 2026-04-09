@@ -9,3 +9,6 @@ Thumbs.db
 # Runtime and temporary outputs
 stl-to-step-voxel/ui-output/
 stl-to-step-voxel/gradio-cache/
+
+# Local test meshes and other non-repo inputs
+input/

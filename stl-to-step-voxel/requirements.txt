@@ -7,3 +7,4 @@ numpy>=1.26
 scipy>=1.13
 scikit-image>=0.24
 shapely>=2.0
+matplotlib>=3.8
