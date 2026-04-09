@@ -1,0 +1,6 @@
+numpy>=1.26
+scipy>=1.13
+trimesh>=4.11
+shapely>=2.0
+scikit-image>=0.24
+plotly>=5.24

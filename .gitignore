@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+Thumbs.db
+
+# Runtime and temporary outputs
+stl-to-step-voxel/ui-output/
+stl-to-step-voxel/gradio-cache/
