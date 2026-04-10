@@ -565,11 +565,11 @@ def primitive_signature(primitive: Primitive2D, tol: float = 0.1) -> Any:
     return None
 
 
-def regroup_features(features: list[Feature]) -> list[Feature]:
+def regroup_features(features: list[Feature], tol: float = 0.1) -> list[Feature]:
     grouped: dict[Any, Feature] = {}
     singles: list[Feature] = []
     for feature in features:
-        key = primitive_group_key(feature)
+        key = primitive_group_key(feature, tol=tol)
         if key is None:
             singles.append(feature)
             continue
@@ -743,7 +743,16 @@ def extract_features(
     return float(base_bottom), float(base_top), base_primitive, regroup_features(features)
 
 
-def solve_voxelized(input_path: Path, pitch: float, max_steps: int) -> ModelSpec | None:
+def solve_voxelized(
+    input_path: Path,
+    pitch: float,
+    max_steps: int,
+    profile_simplify_tol: float | None = None,
+    regroup_tol: float = 0.1,
+    vertical_merge_tol: float = 0.1,
+    disable_regroup: bool = False,
+    disable_vertical_merge: bool = False,
+) -> ModelSpec | None:
     if trimesh is None:
         return None
 
@@ -759,7 +768,11 @@ def solve_voxelized(input_path: Path, pitch: float, max_steps: int) -> ModelSpec
     x0 = float(voxels.translation[0] - pitch * 0.5)
     y0 = float(voxels.translation[1] - pitch * 0.5)
     z0 = float(voxels.translation[2] - pitch * 0.5)
-    simplify_tol = max(0.08, pitch * 0.35)
+    simplify_tol = (
+        max(0.08, pitch * 0.35)
+        if profile_simplify_tol is None
+        else max(float(profile_simplify_tol), 0.0)
+    )
     bands: list[tuple[int, int, np.ndarray]] = []
     current = matrix[:, :, 0]
     start = 0
@@ -795,8 +808,10 @@ def solve_voxelized(input_path: Path, pitch: float, max_steps: int) -> ModelSpec
                 )
             )
 
-    features = regroup_features(features)
-    features = merge_vertical_features(features)
+    if not disable_regroup:
+        features = regroup_features(features, tol=regroup_tol)
+    if not disable_vertical_merge:
+        features = merge_vertical_features(features, tol=vertical_merge_tol)
     features = trim_to_budget(features, max_steps)
     if not features:
         return None
@@ -812,7 +827,12 @@ def solve_voxelized(input_path: Path, pitch: float, max_steps: int) -> ModelSpec
         features=features,
         step_budget=max_steps,
         step_count=len(features),
-        notes=["Used watertight voxel slicing for the primary fit."],
+        notes=[
+            "Used watertight voxel slicing for the primary fit.",
+            f"profile_simplify_tol={simplify_tol:.6f}",
+            f"disable_regroup={disable_regroup}",
+            f"disable_vertical_merge={disable_vertical_merge}",
+        ],
     )
     return spec
 
@@ -832,8 +852,22 @@ def solve(
     thin_axis: str,
     max_steps: int,
     voxel_pitch: float = 0.5,
+    profile_simplify_tol: float | None = None,
+    regroup_tol: float = 0.1,
+    vertical_merge_tol: float = 0.1,
+    disable_regroup: bool = False,
+    disable_vertical_merge: bool = False,
 ) -> ModelSpec:
-    voxel_spec = solve_voxelized(input_path, pitch=voxel_pitch, max_steps=max_steps)
+    voxel_spec = solve_voxelized(
+        input_path,
+        pitch=voxel_pitch,
+        max_steps=max_steps,
+        profile_simplify_tol=profile_simplify_tol,
+        regroup_tol=regroup_tol,
+        vertical_merge_tol=vertical_merge_tol,
+        disable_regroup=disable_regroup,
+        disable_vertical_merge=disable_vertical_merge,
+    )
     if voxel_spec is not None:
         return voxel_spec
 
@@ -964,19 +998,156 @@ def _make_profile_face_runtime(
     return Face.make_surface(exterior=outer, interior_wires=holes)
 
 
-def build_part_from_spec(spec: ModelSpec | dict[str, Any]) -> Any:
+def _make_profile_face_from_polygon_runtime(poly: Any, plane_z: float) -> Any:
+    if Face is None or Wire is None:
+        raise RuntimeError("build123d is not installed in the active interpreter.")
+
+    outer = Wire.make_polygon(
+        [(float(x), float(y), plane_z) for x, y in poly.exterior.coords[:-1]],
+        close=True,
+    )
+    holes = [
+        Wire.make_polygon(
+            [(float(x), float(y), plane_z) for x, y in ring.coords[:-1]],
+            close=True,
+        )
+        for ring in poly.interiors
+    ]
+    return Face.make_surface(exterior=outer, interior_wires=holes)
+
+
+def _feature_batch_key(feature: dict[str, Any], tol: float = 1e-6) -> Any:
+    primitive = feature["primitive"]
+    if primitive["kind"] != "profile":
+        return None
+    return (
+        feature["op"],
+        quantize(feature["z_start"], tol),
+        quantize(feature["height"], tol),
+        primitive["kind"],
+    )
+
+
+def _batch_features_for_build(features: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    if not features:
+        return []
+
+    all_profile = all(feature["primitive"]["kind"] == "profile" for feature in features)
+    ops = {feature["op"] for feature in features}
+    if all_profile and len(ops) == 1:
+        grouped: dict[Any, list[dict[str, Any]]] = {}
+        for feature in features:
+            key = _feature_batch_key(feature)
+            grouped.setdefault(key, []).append(feature)
+        return list(grouped.values())
+
+    batches: list[list[dict[str, Any]]] = []
+    current_batch: list[dict[str, Any]] = []
+    current_key: Any = None
+    for feature in features:
+        key = _feature_batch_key(feature)
+        if key is None:
+            if current_batch:
+                batches.append(current_batch)
+                current_batch = []
+                current_key = None
+            batches.append([feature])
+            continue
+        if current_batch and key == current_key:
+            current_batch.append(feature)
+            continue
+        if current_batch:
+            batches.append(current_batch)
+        current_batch = [feature]
+        current_key = key
+    if current_batch:
+        batches.append(current_batch)
+    return batches
+
+
+def _iter_polygon_parts(geom: Any) -> list[Any]:
+    if geom.is_empty:
+        return []
+    if isinstance(geom, Polygon):
+        return [geom]
+    if isinstance(geom, MultiPolygon):
+        return [poly for poly in geom.geoms if not poly.is_empty and poly.area > 0]
+    if hasattr(geom, "geoms"):
+        return [
+            poly
+            for poly in geom.geoms
+            if isinstance(poly, Polygon) and not poly.is_empty and poly.area > 0
+        ]
+    return []
+
+
+def _profile_polygon_from_feature_runtime(feature: dict[str, Any], center: list[float]) -> Any:
+    params = feature["primitive"]["params"]
+    outer = [(center[0] + point[0], center[1] + point[1]) for point in params["exterior"]]
+    holes = [
+        [(center[0] + point[0], center[1] + point[1]) for point in hole]
+        for hole in params["holes"]
+    ]
+    poly = Polygon(outer, holes)
+    if not poly.is_valid:
+        poly = poly.buffer(0)
+    return poly
+
+
+def _make_batched_profile_faces_runtime(
+    features: list[dict[str, Any]], plane_z: float, union_2d: bool = True
+) -> list[Any]:
+    polygons: list[Any] = []
+    for feature in features:
+        for center in feature["centers"]:
+            poly = _profile_polygon_from_feature_runtime(feature, center)
+            polygons.extend(_iter_polygon_parts(poly))
+
+    if not polygons:
+        return []
+
+    if union_2d and unary_union is not None:
+        geom = unary_union(polygons)
+        if hasattr(geom, "buffer"):
+            geom = geom.buffer(0)
+        polygons = _iter_polygon_parts(geom)
+
+    return [_make_profile_face_from_polygon_runtime(poly, plane_z) for poly in polygons]
+
+
+def build_part_from_spec(
+    spec: ModelSpec | dict[str, Any],
+    batch_profiles: bool = False,
+    batch_union_2d: bool = True,
+) -> Any:
     spec_data = spec_to_dict(spec)
     if BuildPart is None:
         raise RuntimeError("build123d is not installed in the active interpreter.")
 
+    feature_groups = (
+        _batch_features_for_build(spec_data["features"])
+        if batch_profiles
+        else [[feature] for feature in spec_data["features"]]
+    )
+
     with BuildPart() as part:
-        for feature in spec_data["features"]:
+        for feature_group in feature_groups:
+            feature = feature_group[0]
             plane_z = feature["z_start"]
             mode = Mode.ADD if feature["op"] == "add" else Mode.SUBTRACT
-            if feature["primitive"]["kind"] == "profile":
-                for center in feature["centers"]:
-                    face = _make_profile_face_runtime(feature["primitive"], center, plane_z)
-                    extrude(face, amount=feature["height"], mode=mode)
+            if batch_profiles and feature["primitive"]["kind"] == "profile":
+                faces = _make_batched_profile_faces_runtime(
+                    feature_group, plane_z, union_2d=batch_union_2d
+                )
+                if faces:
+                    extrude(faces, amount=feature["height"], mode=mode)
+            elif feature["primitive"]["kind"] == "profile":
+                for item in feature_group:
+                    for center in item["centers"]:
+                        face = _make_profile_face_runtime(
+                            item["primitive"], center, item["z_start"]
+                        )
+                        extrude(face, amount=item["height"], mode=mode)
             else:
                 with BuildSketch(Plane(origin=(0, 0, plane_z), z_dir=(0, 0, 1))):
                     for center in feature["centers"]:
@@ -987,21 +1158,40 @@ def build_part_from_spec(spec: ModelSpec | dict[str, Any]) -> Any:
     return part.part
 
 
-def export_step_from_model_spec(spec: ModelSpec | dict[str, Any], path: Path) -> Path:
-    part = build_part_from_spec(spec)
+def export_step_from_model_spec(
+    spec: ModelSpec | dict[str, Any],
+    path: Path,
+    batch_profiles: bool = False,
+    batch_union_2d: bool = True,
+) -> Path:
+    part = build_part_from_spec(
+        spec, batch_profiles=batch_profiles, batch_union_2d=batch_union_2d
+    )
     export_step(part, path)
     return path
 
 
 def export_stl_from_model_spec(
-    spec: ModelSpec | dict[str, Any], path: Path, tolerance: float = 0.05
+    spec: ModelSpec | dict[str, Any],
+    path: Path,
+    tolerance: float = 0.05,
+    batch_profiles: bool = False,
+    batch_union_2d: bool = True,
 ) -> Path:
-    part = build_part_from_spec(spec)
+    part = build_part_from_spec(
+        spec, batch_profiles=batch_profiles, batch_union_2d=batch_union_2d
+    )
     export_stl(part, path, tolerance=tolerance)
     return path
 
 
-def write_rebuild_script(spec: ModelSpec, target: Path, spec_path: Path) -> None:
+def write_rebuild_script(
+    spec: ModelSpec,
+    target: Path,
+    spec_path: Path,
+    batch_profiles: bool = False,
+    batch_union_2d: bool = True,
+) -> None:
     script = f"""#!/usr/bin/env python3
 from __future__ import annotations
 
@@ -1015,7 +1205,12 @@ def main() -> None:
     with open(here / "{spec_path.name}", "r", encoding="utf-8") as handle:
         spec = json.load(handle)
     out_path = here / "{target.with_suffix('.step').name}"
-    export_step_from_model_spec(spec, out_path)
+    export_step_from_model_spec(
+        spec,
+        out_path,
+        batch_profiles={batch_profiles},
+        batch_union_2d={batch_union_2d},
+    )
     print("Wrote", out_path)
 
 
@@ -1077,6 +1272,44 @@ def main() -> int:
         default=0.5,
         help="Voxel pitch in mm for watertight solid fitting",
     )
+    parser.add_argument(
+        "--profile-simplify-tol",
+        type=float,
+        default=None,
+        help="Override profile simplification tolerance in mm for voxelized slice polygons",
+    )
+    parser.add_argument(
+        "--regroup-tol",
+        type=float,
+        default=0.1,
+        help="Tolerance in mm for merging same-shape features at the same Z span",
+    )
+    parser.add_argument(
+        "--vertical-merge-tol",
+        type=float,
+        default=0.1,
+        help="Tolerance in mm for merging identical stacked features vertically",
+    )
+    parser.add_argument(
+        "--disable-regroup",
+        action="store_true",
+        help="Keep voxel slice features separate instead of regrouping identical XY profiles",
+    )
+    parser.add_argument(
+        "--disable-vertical-merge",
+        action="store_true",
+        help="Keep adjacent identical slice bands separate instead of merging them vertically",
+    )
+    parser.add_argument(
+        "--batch-profiles",
+        action="store_true",
+        help="Batch same-layer profile faces into fewer exact extrusions for rebuild/export",
+    )
+    parser.add_argument(
+        "--no-batch-union-2d",
+        action="store_true",
+        help="When batching profile export, skip the 2D union pass and extrude each face in the layer batch",
+    )
     args = parser.parse_args()
 
     _require_runtime()
@@ -1089,6 +1322,11 @@ def main() -> int:
         thin_axis=args.thin_axis,
         max_steps=args.max_steps,
         voxel_pitch=args.voxel_pitch,
+        profile_simplify_tol=args.profile_simplify_tol,
+        regroup_tol=args.regroup_tol,
+        vertical_merge_tol=args.vertical_merge_tol,
+        disable_regroup=args.disable_regroup,
+        disable_vertical_merge=args.disable_vertical_merge,
     )
 
     stem = args.input.stem
@@ -1096,7 +1334,13 @@ def main() -> int:
     rebuild_path = args.output_dir / f"{stem}_rebuild.py"
 
     write_spec(spec, spec_path)
-    write_rebuild_script(spec, rebuild_path, spec_path)
+    write_rebuild_script(
+        spec,
+        rebuild_path,
+        spec_path,
+        batch_profiles=args.batch_profiles,
+        batch_union_2d=not args.no_batch_union_2d,
+    )
 
     print(json.dumps(asdict(spec), indent=2))
     print(f"Spec written to: {spec_path}")
