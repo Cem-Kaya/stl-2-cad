@@ -48,20 +48,20 @@ except ImportError:  # pragma: no cover
 try:
     from build123d import (
         BuildPart,
-    BuildSketch,
-    Circle,
-    Face,
-    Locations,
-    Mode,
-    Plane,
-    Polygon as B3DPolygon,
-    Rectangle,
-    RectangleRounded,
-    Wire,
-    export_step,
-    export_stl,
-    extrude,
-)
+        BuildSketch,
+        Circle,
+        Face,
+        Locations,
+        Mode,
+        Plane,
+        Polygon as B3DPolygon,
+        Rectangle,
+        RectangleRounded,
+        Wire,
+        export_step,
+        export_stl,
+        extrude,
+    )
 except ImportError:  # pragma: no cover
     BuildPart = None
     BuildSketch = None
@@ -77,6 +77,23 @@ except ImportError:  # pragma: no cover
     export_step = None
     export_stl = None
     extrude = None
+
+try:
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon, BRepBuilderAPI_Sewing
+    from OCP.IFSelect import IFSelect_ReturnStatus
+    from OCP.Message import Message, Message_Gravity
+    from OCP.STEPControl import STEPControl_StepModelType, STEPControl_Writer
+    from OCP.gp import gp_Pnt
+except ImportError:  # pragma: no cover
+    BRepBuilderAPI_MakeFace = None
+    BRepBuilderAPI_MakePolygon = None
+    BRepBuilderAPI_Sewing = None
+    IFSelect_ReturnStatus = None
+    Message = None
+    Message_Gravity = None
+    STEPControl_StepModelType = None
+    STEPControl_Writer = None
+    gp_Pnt = None
 
 
 def _require_runtime() -> None:
@@ -1183,6 +1200,108 @@ def export_stl_from_model_spec(
     )
     export_stl(part, path, tolerance=tolerance)
     return path
+
+
+def _require_tessellated_step_runtime() -> None:
+    missing: list[str] = []
+    if trimesh is None:
+        missing.append("trimesh")
+    if BRepBuilderAPI_MakePolygon is None or STEPControl_Writer is None or gp_Pnt is None:
+        missing.append("cadquery-ocp / OCP")
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeError(
+            "Missing runtime dependencies for tessellated STEP export: "
+            f"{joined}. Install them with `python -m pip install -r requirements.txt`."
+        )
+
+
+def _load_trimesh_mesh(path: Path) -> Any:
+    mesh = trimesh.load(str(path), force="mesh")
+    if hasattr(mesh, "dump") and not hasattr(mesh, "faces"):
+        dumped = mesh.dump(concatenate=True)
+        if dumped is None or not hasattr(dumped, "faces"):
+            raise RuntimeError(f"Could not load mesh data from {path}")
+        mesh = dumped
+    if not hasattr(mesh, "faces") or not hasattr(mesh, "vertices"):
+        raise RuntimeError(f"Could not load mesh data from {path}")
+    return mesh
+
+
+def _mesh_from_model_spec_for_tessellated_export(
+    spec: ModelSpec | dict[str, Any], mesh_source: str = "voxel"
+) -> Any:
+    spec_data = spec_to_dict(spec)
+    source_path = Path(spec_data["source_stl"])
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source STL referenced by spec does not exist: {source_path}")
+
+    source_mesh = _load_trimesh_mesh(source_path)
+    if mesh_source == "stl":
+        return source_mesh
+    if mesh_source != "voxel":
+        raise ValueError(f"Unsupported mesh source: {mesh_source}")
+    if not source_mesh.is_watertight:
+        raise RuntimeError(
+            "Voxel tessellated export requires a watertight source mesh. "
+            f"{source_path} is not watertight."
+        )
+
+    pitch = float(spec_data["grid_pitch"])
+    voxels = source_mesh.voxelized(pitch).fill()
+    voxel_mesh = voxels.as_boxes()
+    if voxel_mesh is None or len(voxel_mesh.faces) == 0:
+        raise RuntimeError("Voxelized mesh export produced no faces.")
+    return voxel_mesh
+
+
+def export_tessellated_step_from_mesh(mesh: Any, path: Path) -> Path:
+    _require_tessellated_step_runtime()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or faces.ndim != 2 or faces.shape[1] != 3:
+        raise RuntimeError("Tessellated STEP export expects a triangular mesh.")
+
+    messenger = Message.DefaultMessenger_s()
+    for printer in messenger.Printers():
+        printer.SetTraceLevel(Message_Gravity(Message_Gravity.Message_Fail))
+
+    sewer = BRepBuilderAPI_Sewing()
+    face_count = 0
+    for face_indices in faces:
+        tri = vertices[face_indices]
+        if np.linalg.norm(np.cross(tri[1] - tri[0], tri[2] - tri[0])) <= 1e-12:
+            continue
+        polygon = BRepBuilderAPI_MakePolygon()
+        for vertex in tri:
+            polygon.Add(gp_Pnt(float(vertex[0]), float(vertex[1]), float(vertex[2])))
+        polygon.Close()
+        sewer.Add(BRepBuilderAPI_MakeFace(polygon.Wire()).Face())
+        face_count += 1
+
+    if face_count == 0:
+        raise RuntimeError("Tessellated STEP export found no non-degenerate triangles.")
+
+    sewer.Perform()
+    shape = sewer.SewedShape()
+
+    writer = STEPControl_Writer()
+    status = writer.Transfer(shape, STEPControl_StepModelType.STEPControl_ShellBasedSurfaceModel)
+    if status != IFSelect_ReturnStatus.IFSelect_RetDone:
+        raise RuntimeError(f"Failed to transfer tessellated mesh to STEP writer (status={int(status)}).")
+    write_status = writer.Write(str(path))
+    if write_status != IFSelect_ReturnStatus.IFSelect_RetDone:
+        raise RuntimeError(f"Failed to write tessellated STEP file (status={int(write_status)}).")
+    return path
+
+
+def export_tessellated_step_from_model_spec(
+    spec: ModelSpec | dict[str, Any], path: Path, mesh_source: str = "voxel"
+) -> Path:
+    mesh = _mesh_from_model_spec_for_tessellated_export(spec, mesh_source=mesh_source)
+    return export_tessellated_step_from_mesh(mesh, path)
 
 
 def write_rebuild_script(
