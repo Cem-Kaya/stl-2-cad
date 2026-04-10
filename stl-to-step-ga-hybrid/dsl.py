@@ -374,19 +374,31 @@ def gene_to_feature(gene: PrimitiveGene) -> dict[str, Any]:
             "fit_error": 0.0,
         }
     elif gene.kind == "rounded_rectangle":
+        width = float(gene.size_x)
+        height = float(gene.size_y)
         safe_radius = min(
             float(gene.aux),
-            max(min(float(gene.size_x), float(gene.size_y)) * 0.5 - 1e-5, 0.0),
+            max(min(width, height) * 0.5 - 1e-5, 0.0),
         )
-        primitive = {
-            "kind": "rounded_rectangle",
-            "params": {
-                "width": float(gene.size_x),
-                "height": float(gene.size_y),
-                "radius": safe_radius,
-            },
-            "fit_error": 0.0,
-        }
+        if safe_radius <= 1e-6:
+            primitive = {
+                "kind": "rectangle",
+                "params": {
+                    "width": width,
+                    "height": height,
+                },
+                "fit_error": 0.0,
+            }
+        else:
+            primitive = {
+                "kind": "rounded_rectangle",
+                "params": {
+                    "width": width,
+                    "height": height,
+                    "radius": safe_radius,
+                },
+                "fit_error": 0.0,
+            }
     else:
         primitive = {
             "kind": "rectangle",

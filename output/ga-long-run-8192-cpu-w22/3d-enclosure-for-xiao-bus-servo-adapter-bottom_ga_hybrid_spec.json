@@ -1,0 +1,870 @@
+{
+  "source_stl": "input/3d-enclosure-for-xiao-bus-servo-adapter-bottom.stl",
+  "grid_pitch": 0.5,
+  "base_bottom": 33.25,
+  "base_top": 39.75000123762755,
+  "base_primitive": {
+    "kind": "rounded_rectangle",
+    "params": {
+      "width": 31.520514154479773,
+      "height": 52.65075181046213,
+      "radius": 15.254610836873896
+    },
+    "fit_error": 0.0
+  },
+  "features": [
+    {
+      "op": "add",
+      "z_start": 33.25,
+      "height": 3.465046824245202,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 31.520514154479773,
+          "height": 52.65075181046213,
+          "radius": 15.254610836873896
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.6818868317722,
+          -90.09364824708257
+        ]
+      ],
+      "area": 5058.360845959047,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 33.5,
+      "height": 5.45561573081661,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 31.934122922557588,
+          "height": 33.32996877935708,
+          "radius": 15.104290832462269
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.45264607676184,
+          -116.04191425864914
+        ]
+      ],
+      "area": 4738.347436290677,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 33.786382789004406,
+      "height": 2.821283306365672,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 16.719261655967472
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          72.31220482652489,
+          -100.04264976868753
+        ]
+      ],
+      "area": 2477.5975385159763,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 33.25,
+      "height": 3.3997505436129423,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 13.619405540427698
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          52.07548060733949,
+          -100.18573839380657
+        ]
+      ],
+      "area": 1981.13115830656,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 34.27882299234706,
+      "height": 1.7239407490697185,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 37.41152078012395,
+          "height": 20.398445641538355,
+          "radius": 7.480469935336503
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          62.68309614076065,
+          -94.83663759393168
+        ]
+      ],
+      "area": 1232.7945181345447,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 35.2279442960278,
+      "height": 2.2794302354310236,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 21.216628216105335,
+          "height": 14.591578214775254
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          68.68780560457553,
+          -100.92464436719601
+        ]
+      ],
+      "area": 705.6753353119273,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 34.949923995628616,
+      "height": 1.2271435092933665,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 12.976280515797425
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          58.38225550089495,
+          -92.36772350358643
+        ]
+      ],
+      "area": 649.15092166238,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 36.805907521702174,
+      "height": 0.7678057896033003,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 8.99508005442212,
+          "height": 56.839996337890625
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          46.54283099787217,
+          -79.46701494629703
+        ]
+      ],
+      "area": 392.5639877733749,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 33.25,
+      "height": 5.519726113680887,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 4.644910130022721
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          49.1776239785284,
+          -110.03649572138869
+        ]
+      ],
+      "area": 374.12956826004927,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 36.08570015074761,
+      "height": 1.8598449927341831,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 7.52259253845759,
+          "height": 17.158922176994324
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          81.56750482191312,
+          -85.72017434451824
+        ]
+      ],
+      "area": 240.0680104093767,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 36.271529163439006,
+      "height": 1.507967745544467,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 37.968190931462914,
+          "height": 1.246721616158751,
+          "radius": 0.34099910625583557
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          70.36867838916123,
+          -77.9501974390178
+        ]
+      ],
+      "area": 71.23028664647174,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 36.54104959692518,
+      "height": 1.0586061572849457,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 7.317942674799365,
+          "height": 0.5843650295670849
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          53.144466400146484,
+          -77.06974029541016
+        ]
+      ],
+      "area": 4.526970215782753,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 36.63161288931969,
+      "height": 0.9719006574481105,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 5.8049829020907895,
+          "height": 0.6302334376645018,
+          "radius": 0.09248952299816539
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          74.75228118896484,
+          -76.936767578125
+        ]
+      ],
+      "area": 3.5485562962553594,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "add",
+      "z_start": 33.74390151493926,
+      "height": 2.327560598145002,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 0.6869588316267798,
+          "height": 1.5658672491695569
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          48.8811149597168,
+          -122.44003295898438
+        ]
+      ],
+      "area": 2.5037251315717626,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.751277349946236,
+      "height": 2.1189369158903366,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 23.264091054256177,
+          "height": 56.0531785238341
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          90.60331421171362,
+          -97.0172082634812
+        ]
+      ],
+      "area": 2763.1493584210225,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 37.612491607666016,
+      "height": 2.137506554875851,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 18.546785833430576
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          63.801513418225554,
+          -116.48731803668255
+        ]
+      ],
+      "area": 2309.907781967601,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.05322782039982,
+      "height": 3.668351203848084,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 10.912758974418995,
+          "height": 56.839996337890625,
+          "radius": 3.265680719324511
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          85.4442501718737,
+          -95.65469479948958
+        ]
+      ],
+      "area": 2241.826810209061,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.08952362190108,
+      "height": 2.0962133577359205,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 15.292878191714173,
+          "height": 54.681747159666465
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          41.37060579903331,
+          -104.20310725008086
+        ]
+      ],
+      "area": 1752.9401804637384,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.66240911733263,
+      "height": 2.4517921057062435,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 26.53856386843087,
+          "height": 25.056519177829045
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.3438850103446,
+          -104.24218460110885
+        ]
+      ],
+      "area": 1630.353570418091,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.791750104483455,
+      "height": 1.747597328685768,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 15.673603666687185,
+          "height": 56.839996337890625
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          41.67832281600585,
+          -104.43572773520567
+        ]
+      ],
+      "area": 1556.9127462573883,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.34883117675781,
+      "height": 5.401168394326855,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 7.8954330689414896
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          85.48895828107017,
+          -72.34825574866683
+        ]
+      ],
+      "area": 1057.7657556027098,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.367584228515625,
+      "height": 3.1324170397176965,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 30.405850188110584,
+          "height": 8.9658847043092
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.4495631401804,
+          -128.6699981689453
+        ]
+      ],
+      "area": 853.944958616946,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.70987246893356,
+      "height": 4.987409648813885,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 32.444083497799035,
+          "height": 4.100003493723036
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          55.16860943675917,
+          -74.13450866608976
+        ]
+      ],
+      "area": 663.4294991698546,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.569285026949395,
+      "height": 2.7968572780918204,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 53.541700047778974,
+          "height": 2.696031358957814
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          52.97639908468622,
+          -125.03587370213452
+        ]
+      ],
+      "area": 403.7266343249564,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 33.480899888816744,
+      "height": 5.056892885674851,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 2.703492719599881,
+          "height": 14.474403681378789,
+          "radius": 1.2840679843686817
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          45.31522298726598,
+          -100.22947774899593
+        ]
+      ],
+      "area": 190.72615985392903,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.91614204915173,
+      "height": 1.0297962763675723,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 16.28420417002089,
+          "height": 5.519600529946675
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.29084982872013,
+          -119.4675684838054
+        ]
+      ],
+      "area": 92.56045987655776,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.319271479664636,
+      "height": 2.0062528909199995,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 2.3632865932016673,
+          "height": 13.882556235345854,
+          "radius": 0.8998561906701882
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          83.53413205593367,
+          -100.34933213967852
+        ]
+      ],
+      "area": 64.42754394078206,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.294197081336414,
+      "height": 1.9304071161721426,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 0.9708374759015759,
+          "height": 13.94523720311009,
+          "radius": 0.43328811936342365
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          82.28648451685712,
+          -100.41156970225003
+        ]
+      ],
+      "area": 25.82383336507392,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 33.622215270996094,
+      "height": 6.127785966631455,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 1.0704125017738162
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          74.69642215443059,
+          -119.33557160097602
+        ]
+      ],
+      "area": 22.057475519800093,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.01648022270398,
+      "height": 5.3263925219727195,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 2.0338489360757004,
+          "height": 2.101488474319451,
+          "radius": 0.629221452522231
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          53.75645045663035,
+          -119.44084884068816
+        ]
+      ],
+      "area": 20.95535857191717,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.482270620401685,
+      "height": 0.5744212953364382,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 23.04278511014769,
+          "height": 1.0600730125785898,
+          "radius": 0.5300265062892949
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          68.04169006668984,
+          -76.36877098904945
+        ]
+      ],
+      "area": 13.89288152437357,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 33.694520583620864,
+      "height": 3.194311824741951,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 1.0950759842448146
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          53.65675905920602,
+          -102.3966746403645
+        ]
+      ],
+      "area": 12.034157503157733,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.26748418437754,
+      "height": 2.7715561286079584,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 1.7890900193697425,
+          "height": 2.642920660847678,
+          "radius": 0.8945350096848713
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          74.78026756947737,
+          -102.47012800852524
+        ]
+      ],
+      "area": 11.201288906861157,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.02769921940947,
+      "height": 0.9608441600168104,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 3.6419948048981174,
+          "height": 3.796229796801451,
+          "radius": 1.8209874024490587
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          53.7996554089057,
+          -119.51817788668006
+        ]
+      ],
+      "area": 10.549437951658845,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 33.9117916205239,
+      "height": 0.9819387534542504,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 3.5818749152523086,
+          "height": 3.392700662067469,
+          "radius": 1.5293830486630522
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          53.731779047544,
+          -102.40085133127661
+        ]
+      ],
+      "area": 9.961183295442682,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.01962586540046,
+      "height": 0.9729182146681916,
+      "primitive": {
+        "kind": "circle",
+        "params": {
+          "radius": 1.7250057325608592
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          74.71577677167404,
+          -119.52571126203033
+        ]
+      ],
+      "area": 9.095096099565819,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.892042922710296,
+      "height": 0.9750574545923629,
+      "primitive": {
+        "kind": "rounded_rectangle",
+        "params": {
+          "width": 13.338918742927882,
+          "height": 0.5515670680996643,
+          "radius": 0.14610032813652107
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.21814373801067,
+          -77.25740393174645
+        ]
+      ],
+      "area": 7.155932360305143,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.1156736272994,
+      "height": 0.5908284280503971,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 14.505447988816478,
+          "height": 0.5592434714932123
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          65.13216290457245,
+          -75.83590581549912
+        ]
+      ],
+      "area": 4.792845754617048,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 34.1156736272994,
+      "height": 0.5908284280503971,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 13.232013448426763,
+          "height": 0.5222385366771709
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          64.26432569390056,
+          -76.64744706127588
+        ]
+      ],
+      "area": 4.0827823902541285,
+      "source": "ga_hybrid"
+    },
+    {
+      "op": "cut",
+      "z_start": 36.73531994482582,
+      "height": 0.911294868777871,
+      "primitive": {
+        "kind": "rectangle",
+        "params": {
+          "width": 5.4799649588034915,
+          "height": 0.5968204316449566
+        },
+        "fit_error": 0.0
+      },
+      "centers": [
+        [
+          75.0268415462409,
+          -78.3460173724314
+        ]
+      ],
+      "area": 2.980440037045515,
+      "source": "ga_hybrid"
+    }
+  ],
+  "step_budget": 128,
+  "step_count": 40,
+  "notes": [
+    "Hybrid GA search on backend numpy:cpu.",
+    "Semantic roadmap: box, rounded_box, cylinder, tube, slot, hole, patterns, and post-ops.",
+    "Best GA-hybrid metrics: score=0.919446, iou=0.961734, missing=0.030666, extra=0.007903."
+  ]
+}

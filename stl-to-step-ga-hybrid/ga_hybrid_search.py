@@ -65,8 +65,8 @@ except ImportError:  # pragma: no cover
     occupancy_to_surface_mesh = None
     spec_to_voxel_occupancy = None
 
-
 CPU_WORKER_SCORER: ProgramScorer | None = None
+WORKER_TARGET: TargetGrid | None = None
 CHECKPOINT_VERSION = 1
 
 
@@ -85,13 +85,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--local-steps",
         dest="optimization_steps",
         type=int,
-        default=18,
+        default=64,
     )
-    parser.add_argument("--local-proposals", type=int, default=4)
+    parser.add_argument("--local-proposals", type=int, default=6)
     parser.add_argument("--elite-count", type=int, default=10)
-    parser.add_argument("--refine-count", type=int, default=6)
+    parser.add_argument("--refine-count", type=int, default=8)
+    parser.add_argument("--refine-beam-width", type=int, default=3)
+    parser.add_argument("--refine-accept-threshold", type=float, default=0.0025)
+    parser.add_argument("--refine-anneal-start", type=float, default=0.0035)
+    parser.add_argument("--refine-anneal-decay", type=float, default=0.92)
+    parser.add_argument("--refine-multi-gene-rate", type=float, default=0.2)
     parser.add_argument("--mutation-strength", type=float, default=0.22)
     parser.add_argument("--structural-rate", type=float, default=0.35)
+    parser.add_argument("--mutation-bias-rate", type=float, default=0.15)
     parser.add_argument("--score-batch-size", type=int, default=8)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "gpu"], default="auto")
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 16) - 1))
@@ -169,10 +175,16 @@ def build_config_payload(args: argparse.Namespace) -> dict[str, Any]:
         "local_proposals": args.local_proposals,
         "elite_count": args.elite_count,
         "refine_count": args.refine_count,
+        "refine_beam_width": args.refine_beam_width,
+        "refine_accept_threshold": args.refine_accept_threshold,
+        "refine_anneal_start": args.refine_anneal_start,
+        "refine_anneal_decay": args.refine_anneal_decay,
+        "refine_multi_gene_rate": args.refine_multi_gene_rate,
         "workers": args.workers,
         "voxel_pitch": args.voxel_pitch,
         "mutation_strength": args.mutation_strength,
         "structural_rate": args.structural_rate,
+        "mutation_bias_rate": args.mutation_bias_rate,
         "score_batch_size": args.score_batch_size,
         "device": args.device,
         "seed": args.seed,
@@ -315,10 +327,12 @@ def assert_resume_compatible(args: argparse.Namespace, checkpoint: dict[str, Any
         )
 
 
-def _init_cpu_worker(target_payload: dict[str, Any], batch_size: int) -> None:
-    global CPU_WORKER_SCORER
-    target = TargetGrid.from_payload(target_payload)
-    CPU_WORKER_SCORER = ProgramScorer(target, requested_device="cpu", batch_size=batch_size)
+def _init_worker_context(target_payload: dict[str, Any], batch_size: int, init_cpu_scorer: bool) -> None:
+    global CPU_WORKER_SCORER, WORKER_TARGET
+    WORKER_TARGET = TargetGrid.from_payload(target_payload)
+    CPU_WORKER_SCORER = None
+    if init_cpu_scorer:
+        CPU_WORKER_SCORER = ProgramScorer(WORKER_TARGET, requested_device="cpu", batch_size=batch_size)
 
 
 def _score_chunk_worker(task: tuple[list[dict[str, Any]], dict[str, float], int]) -> list[dict[str, float]]:
@@ -339,9 +353,28 @@ def _refine_worker(
         int,
         float,
         int,
+        float,
+        float,
+        float,
+        float,
+        int,
     ]
 ) -> dict[str, Any]:
-    candidate_payload, bounds_payload, weights_payload, primitive_budget, steps, proposals, scale, seed = task
+    (
+        candidate_payload,
+        bounds_payload,
+        weights_payload,
+        primitive_budget,
+        steps,
+        proposals,
+        scale,
+        beam_width,
+        acceptance_threshold,
+        anneal_start,
+        anneal_decay,
+        multi_gene_rate,
+        seed,
+    ) = task
     assert CPU_WORKER_SCORER is not None
     candidate = CandidateProgram.from_dict(candidate_payload)
     bounds = SearchBounds.from_dict(bounds_payload)
@@ -357,6 +390,12 @@ def _refine_worker(
         steps=steps,
         proposals_per_step=proposals,
         initial_scale=scale,
+        target=WORKER_TARGET,
+        beam_width=beam_width,
+        acceptance_threshold=acceptance_threshold,
+        anneal_start=anneal_start,
+        anneal_decay=anneal_decay,
+        multi_gene_rate=multi_gene_rate,
     )
     return refined.to_dict()
 
@@ -369,10 +408,11 @@ def _breed_worker(
         int,
         float,
         float,
+        float,
         int,
     ]
 ) -> dict[str, Any]:
-    parent_a_payload, parent_b_payload, bounds_payload, max_primitives, mutation_strength, structural_rate, seed = task
+    parent_a_payload, parent_b_payload, bounds_payload, max_primitives, mutation_strength, structural_rate, mutation_bias_rate, seed = task
     bounds = SearchBounds.from_dict(bounds_payload)
     rng = np.random.default_rng(seed)
     parent_a = CandidateProgram.from_dict(parent_a_payload)
@@ -390,6 +430,8 @@ def _breed_worker(
         max_primitives=max_primitives,
         mutation_strength=mutation_strength,
         structural_rate=structural_rate,
+        target=WORKER_TARGET,
+        bias_rate=mutation_bias_rate,
     )
     return child.to_dict()
 
@@ -479,9 +521,15 @@ def refine_elites(
     scorer: ProgramScorer,
     weights: ScoreWeights,
     bounds: SearchBounds,
+    target: TargetGrid,
     primitive_budget: int,
     steps: int,
     proposals: int,
+    beam_width: int,
+    acceptance_threshold: float,
+    anneal_start: float,
+    anneal_decay: float,
+    multi_gene_rate: float,
     rng: np.random.Generator,
     pool: ProcessPoolExecutor | None,
 ) -> list[CandidateProgram]:
@@ -499,6 +547,11 @@ def refine_elites(
                 steps,
                 proposals,
                 scale,
+                beam_width,
+                acceptance_threshold,
+                anneal_start,
+                anneal_decay,
+                multi_gene_rate,
                 int(rng.integers(0, 2**31 - 1)),
             )
             for elite in elites
@@ -518,6 +571,12 @@ def refine_elites(
                 steps=steps,
                 proposals_per_step=proposals,
                 initial_scale=scale,
+                target=target,
+                beam_width=beam_width,
+                acceptance_threshold=acceptance_threshold,
+                anneal_start=anneal_start,
+                anneal_decay=anneal_decay,
+                multi_gene_rate=multi_gene_rate,
             )
         )
     return refined
@@ -527,35 +586,57 @@ def breed_generation(
     population: list[CandidateProgram],
     offspring_count: int,
     bounds: SearchBounds,
+    target: TargetGrid,
     max_primitives: int,
     mutation_strength: float,
     structural_rate: float,
+    mutation_bias_rate: float,
     rng: np.random.Generator,
     pool: ProcessPoolExecutor | None,
 ) -> list[CandidateProgram]:
     if offspring_count <= 0:
         return []
 
-    tasks = []
+    if pool is not None:
+        tasks = []
+        for _ in range(offspring_count):
+            parent_a = tournament_select(population, rng, size=3)
+            parent_b = tournament_select(population, rng, size=3)
+            tasks.append(
+                (
+                    parent_a.to_dict(),
+                    parent_b.to_dict(),
+                    bounds.to_dict(),
+                    max_primitives,
+                    mutation_strength,
+                    structural_rate,
+                    mutation_bias_rate,
+                    int(rng.integers(0, 2**31 - 1)),
+                )
+            )
+        return [CandidateProgram.from_dict(payload) for payload in pool.map(_breed_worker, tasks)]
+
+    offspring: list[CandidateProgram] = []
     for _ in range(offspring_count):
         parent_a = tournament_select(population, rng, size=3)
         parent_b = tournament_select(population, rng, size=3)
-        tasks.append(
-            (
-                parent_a.to_dict(),
-                parent_b.to_dict(),
-                bounds.to_dict(),
-                max_primitives,
-                mutation_strength,
-                structural_rate,
-                int(rng.integers(0, 2**31 - 1)),
-            )
+        if rng.random() < 0.82:
+            child = crossover_programs(parent_a, parent_b, rng, bounds, max_primitives)
+        else:
+            child = parent_a.clone() if rng.random() < 0.5 else parent_b.clone()
+
+        child = mutate_program(
+            child,
+            bounds=bounds,
+            rng=rng,
+            max_primitives=max_primitives,
+            mutation_strength=mutation_strength,
+            structural_rate=structural_rate,
+            target=target,
+            bias_rate=mutation_bias_rate,
         )
-
-    if pool is not None:
-        return [CandidateProgram.from_dict(payload) for payload in pool.map(_breed_worker, tasks)]
-
-    return [CandidateProgram.from_dict(_breed_worker(task)) for task in tasks]
+        offspring.append(child)
+    return offspring
 
 
 def select_next_population(candidates: list[CandidateProgram], population_size: int) -> list[CandidateProgram]:
@@ -806,11 +887,16 @@ def main() -> int:
             pool = ProcessPoolExecutor(
                 max_workers=args.workers,
                 mp_context=context,
-                initializer=_init_cpu_worker,
-                initargs=(target.to_payload(), args.score_batch_size),
+                initializer=_init_worker_context,
+                initargs=(target.to_payload(), args.score_batch_size, True),
             )
         else:
-            pool = ProcessPoolExecutor(max_workers=args.workers, mp_context=context)
+            pool = ProcessPoolExecutor(
+                max_workers=args.workers,
+                mp_context=context,
+                initializer=_init_worker_context,
+                initargs=(target.to_payload(), args.score_batch_size, False),
+            )
 
     try:
         if args.resume_from is not None:
@@ -853,9 +939,15 @@ def main() -> int:
                 scorer=scorer,
                 weights=weights,
                 bounds=target.search_bounds,
+                target=target,
                 primitive_budget=args.max_primitives,
                 steps=args.optimization_steps,
                 proposals=args.local_proposals,
+                beam_width=args.refine_beam_width,
+                acceptance_threshold=args.refine_accept_threshold,
+                anneal_start=args.refine_anneal_start,
+                anneal_decay=args.refine_anneal_decay,
+                multi_gene_rate=args.refine_multi_gene_rate,
                 rng=rng,
                 pool=pool,
             )
@@ -874,9 +966,11 @@ def main() -> int:
                 population=population,
                 offspring_count=max(args.population_size - len(elites) - len(refined), 0),
                 bounds=target.search_bounds,
+                target=target,
                 max_primitives=args.max_primitives,
                 mutation_strength=args.mutation_strength,
                 structural_rate=args.structural_rate,
+                mutation_bias_rate=args.mutation_bias_rate,
                 rng=rng,
                 pool=pool,
             )
@@ -915,17 +1009,20 @@ def main() -> int:
             history = history[-max(1, args.keep_history) :]
             if args.save_frames and generation % max(1, args.frame_every) == 0:
                 frame_path = frame_dir / f"gen_{generation:04d}.png"
-                frame_error = render_generation_frame(
-                    candidate=best,
-                    target=target,
-                    output_path=frame_path,
-                    generation=generation,
-                    camera_elev=args.camera_elev,
-                    camera_azim=args.camera_azim,
-                    frame_width=args.frame_width,
-                    frame_height=args.frame_height,
-                    frame_dpi=args.frame_dpi,
-                )
+                if frame_path.exists():
+                    frame_error = None
+                else:
+                    frame_error = render_generation_frame(
+                        candidate=best,
+                        target=target,
+                        output_path=frame_path,
+                        generation=generation,
+                        camera_elev=args.camera_elev,
+                        camera_azim=args.camera_azim,
+                        frame_width=args.frame_width,
+                        frame_height=args.frame_height,
+                        frame_dpi=args.frame_dpi,
+                    )
                 frame_records.append(
                     {
                         "generation": generation,
