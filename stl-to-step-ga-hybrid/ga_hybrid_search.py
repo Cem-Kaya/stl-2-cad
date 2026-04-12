@@ -35,7 +35,9 @@ from dsl import (
     SearchBounds,
     candidate_from_supported_features,
     candidate_to_model_spec,
+    gene_center_z,
     normalize_program,
+    primitive_occupancy_mask,
     random_gene,
     seed_program_from_bounds,
 )
@@ -109,6 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frame-every", type=int, default=1)
     parser.add_argument("--camera-elev", type=float, default=35.2643897)
     parser.add_argument("--camera-azim", type=float, default=-45.0)
+    parser.add_argument("--camera-motion", choices=["fixed", "orbit"], default="fixed")
+    parser.add_argument("--camera-orbit-period", type=float, default=240.0)
     parser.add_argument("--frame-width", type=float, default=8.6)
     parser.add_argument("--frame-height", type=float, default=6.8)
     parser.add_argument("--frame-dpi", type=int, default=160)
@@ -131,11 +135,13 @@ def candidate_signature(candidate: CandidateProgram) -> tuple[Any, ...]:
                 gene.op,
                 round(gene.center_x, 3),
                 round(gene.center_y, 3),
-                round(gene.z_start, 3),
+                round(gene_center_z(gene), 3),
                 round(gene.height, 3),
                 round(gene.size_x, 3),
                 round(gene.size_y, 3),
                 round(gene.aux, 3),
+                gene.axis,
+                round(gene.angle_deg, 2),
             )
         )
     return tuple(rows)
@@ -192,6 +198,8 @@ def build_config_payload(args: argparse.Namespace) -> dict[str, Any]:
         "frame_every": args.frame_every,
         "camera_elev": args.camera_elev,
         "camera_azim": args.camera_azim,
+        "camera_motion": args.camera_motion,
+        "camera_orbit_period": args.camera_orbit_period,
         "frame_width": args.frame_width,
         "frame_height": args.frame_height,
         "frame_dpi": args.frame_dpi,
@@ -807,27 +815,28 @@ def render_generation_frame(
     generation: int,
     camera_elev: float,
     camera_azim: float,
+    camera_motion: str,
+    camera_orbit_period: float,
     frame_width: float,
     frame_height: float,
     frame_dpi: int,
 ) -> str | None:
-    if spec_to_voxel_occupancy is None or occupancy_to_surface_mesh is None:
+    if occupancy_to_surface_mesh is None:
         return "frame rendering helpers are unavailable"
 
-    spec = candidate_to_model_spec(
-        candidate=candidate,
-        input_path=target.source_stl,
-        grid_pitch=target.pitch,
-        step_budget=max(candidate.primitive_count(), 1),
-        notes=["Generated for per-generation GA timelapse frame."],
-    )
-    min_corner = np.asarray(target.score_min_corner, dtype=float)
-    max_corner = np.asarray(target.score_max_corner, dtype=float)
-    occupancy, center0 = spec_to_voxel_occupancy(spec, target.pitch, min_corner, max_corner)
+    occupancy = np.zeros_like(target.occupancy, dtype=bool)
+    for gene in candidate.genes:
+        primitive = primitive_occupancy_mask(gene, target.xs, target.ys, target.zs)
+        if gene.op == "add":
+            occupancy |= primitive
+        else:
+            occupancy &= ~primitive
     if not occupancy.any():
         return "candidate occupancy is empty"
 
-    mesh = occupancy_to_surface_mesh(occupancy, center0, target.pitch)
+    min_corner = np.asarray(target.score_min_corner, dtype=float)
+    max_corner = np.asarray(target.score_max_corner, dtype=float)
+    mesh = occupancy_to_surface_mesh(occupancy, min_corner, target.pitch)
     if len(mesh.faces) == 0:
         return "candidate mesh is empty"
 
@@ -846,7 +855,12 @@ def render_generation_frame(
         antialiased=True,
     )
     ax.add_collection3d(collection)
-    apply_camera(ax, bounds, elev=camera_elev, azim=camera_azim)
+    orbit_period = max(float(camera_orbit_period), 1.0)
+    if camera_motion == "orbit":
+        azim = camera_azim + (360.0 * (float(generation) / orbit_period))
+    else:
+        azim = camera_azim
+    apply_camera(ax, bounds, elev=camera_elev, azim=azim)
     ax.set_title(
         f"Generation {generation:03d} | IoU {candidate.metrics.get('iou', 0.0):.4f} | "
         f"Prims {candidate.primitive_count()}",
@@ -1019,6 +1033,8 @@ def main() -> int:
                         generation=generation,
                         camera_elev=args.camera_elev,
                         camera_azim=args.camera_azim,
+                        camera_motion=args.camera_motion,
+                        camera_orbit_period=args.camera_orbit_period,
                         frame_width=args.frame_width,
                         frame_height=args.frame_height,
                         frame_dpi=args.frame_dpi,

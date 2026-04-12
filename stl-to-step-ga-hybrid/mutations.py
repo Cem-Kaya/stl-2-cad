@@ -12,38 +12,18 @@ from dsl import (
     SearchBounds,
     SUPPORTED_KINDS,
     clamp_gene,
+    gene_center_z,
     normalize_program,
+    primitive_occupancy_mask,
     random_gene,
 )
 
 
 def _candidate_occupancy(candidate: CandidateProgram, target: object) -> np.ndarray:
     occupancy = np.zeros_like(target.occupancy, dtype=bool)
-    x_grid = target.xs[:, None]
-    y_grid = target.ys[None, :]
-    z_grid = target.zs
 
     for gene in candidate.genes:
-        if gene.kind == "rectangle":
-            dx = np.abs(x_grid - gene.center_x)
-            dy = np.abs(y_grid - gene.center_y)
-            mask_xy = (dx <= gene.size_x * 0.5) & (dy <= gene.size_y * 0.5)
-        elif gene.kind == "circle":
-            dx = x_grid - gene.center_x
-            dy = y_grid - gene.center_y
-            mask_xy = (dx * dx + dy * dy) <= (gene.size_x * gene.size_x)
-        else:
-            dx = np.abs(x_grid - gene.center_x)
-            dy = np.abs(y_grid - gene.center_y)
-            radius = min(max(gene.aux, 0.0), gene.size_x * 0.5, gene.size_y * 0.5)
-            core_x = max(gene.size_x * 0.5 - radius, 0.0)
-            core_y = max(gene.size_y * 0.5 - radius, 0.0)
-            qx = np.maximum(dx - core_x, 0.0)
-            qy = np.maximum(dy - core_y, 0.0)
-            mask_xy = (qx * qx + qy * qy) <= (radius * radius)
-
-        mask_z = (z_grid >= gene.z_start) & (z_grid < gene.z_start + gene.height)
-        primitive = mask_xy[:, :, None] & mask_z[None, None, :]
+        primitive = primitive_occupancy_mask(gene, target.xs, target.ys, target.zs)
         if gene.op == "add":
             occupancy |= primitive
         else:
@@ -104,38 +84,62 @@ def _build_guided_gene(
     height = max(bounds.min_size, float(span[2] * rng.uniform(0.96, 1.18)))
     center_x = float(center[0] + rng.normal(0.0, max(span[0] * 0.04, pitch * 0.25)))
     center_y = float(center[1] + rng.normal(0.0, max(span[1] * 0.04, pitch * 0.25)))
-    z_start = float(min_corner[2] + rng.normal(0.0, max(span[2] * 0.04, pitch * 0.25)))
+    center_z = float(center[2] + rng.normal(0.0, max(span[2] * 0.04, pitch * 0.25)))
 
     aspect_ratio = max(size_x, size_y) / max(min(size_x, size_y), bounds.min_size)
     if aspect_ratio < 1.18 and rng.random() < 0.22:
         kind = "circle"
+        axis = "z"
+        longest_axis = int(np.argmax(span))
+        if longest_axis == 0 and span[0] > max(span[1], span[2]) * 1.25:
+            axis = "x"
+            height = max(bounds.min_size, float(span[0] * rng.uniform(0.94, 1.12)))
+        elif longest_axis == 1 and span[1] > max(span[0], span[2]) * 1.25:
+            axis = "y"
+            height = max(bounds.min_size, float(span[1] * rng.uniform(0.94, 1.12)))
+        else:
+            height = max(bounds.min_size, float(span[2] * rng.uniform(0.94, 1.12)))
         radius = max(bounds.min_size, 0.5 * max(size_x, size_y))
         gene = PrimitiveGene(
             kind=kind,
             op=op,
             center_x=center_x,
             center_y=center_y,
-            z_start=z_start,
+            z_start=float(center_z - height * 0.5),
             height=height,
             size_x=radius,
             size_y=radius,
             aux=0.0,
+            center_z=center_z,
+            axis=axis,
+            angle_deg=0.0,
         )
     else:
         kind = "rounded_rectangle" if rng.random() < 0.35 else "rectangle"
         aux = 0.0
         if kind == "rounded_rectangle":
             aux = float(rng.uniform(0.0, min(size_x, size_y) * 0.28))
+        xy_coords = coords[:, :2].astype(np.float64)
+        angle_deg = 0.0
+        if len(xy_coords) >= 3:
+            centered = xy_coords - xy_coords.mean(axis=0, keepdims=True)
+            cov = centered.T @ centered
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            principal = eigvecs[:, int(np.argmax(eigvals))]
+            angle_deg = float(np.degrees(np.arctan2(principal[1], principal[0])))
         gene = PrimitiveGene(
             kind=kind,
             op=op,
             center_x=center_x,
             center_y=center_y,
-            z_start=z_start,
+            z_start=float(center_z - height * 0.5),
             height=height,
             size_x=size_x,
             size_y=size_y,
             aux=aux,
+            center_z=center_z,
+            axis="z",
+            angle_deg=angle_deg,
         )
     return clamp_gene(gene, bounds)
 
@@ -281,31 +285,67 @@ def mutate_gene(
     sigma_xy = max(scale_xy * mutation_strength * 0.22, bounds.min_size)
     sigma_z = max(scale_z * mutation_strength * 0.18, bounds.min_size)
     sigma_size = max(scale_xy * mutation_strength * 0.25, bounds.min_size)
+    sigma_angle = max(6.0, 55.0 * mutation_strength)
+    center_z = gene_center_z(gene)
 
-    mode = int(rng.integers(0, 6))
+    mode = int(rng.integers(0, 8))
     if mode == 0:
         gene.center_x += float(rng.normal(0.0, sigma_xy))
         gene.center_y += float(rng.normal(0.0, sigma_xy))
+        if gene.kind == "circle" and gene.axis in {"x", "y"}:
+            center_z += float(rng.normal(0.0, sigma_xy))
     elif mode == 1:
-        gene.z_start += float(rng.normal(0.0, sigma_z))
+        center_z += float(rng.normal(0.0, sigma_z))
         gene.height *= float(math.exp(rng.normal(0.0, mutation_strength * 0.33)))
     elif mode == 2:
-        gene.size_x *= float(math.exp(rng.normal(0.0, mutation_strength * 0.38)))
-        gene.size_y *= float(math.exp(rng.normal(0.0, mutation_strength * 0.38)))
-    elif mode == 3 and gene.kind == "rounded_rectangle":
-        gene.aux += float(rng.normal(0.0, sigma_size * 0.35))
+        if gene.kind == "circle":
+            radius_scale = float(math.exp(rng.normal(0.0, mutation_strength * 0.38)))
+            gene.size_x *= radius_scale
+            gene.size_y = gene.size_x
+        else:
+            gene.size_x *= float(math.exp(rng.normal(0.0, mutation_strength * 0.38)))
+            gene.size_y *= float(math.exp(rng.normal(0.0, mutation_strength * 0.38)))
+    elif mode == 3:
+        if gene.kind == "rounded_rectangle":
+            gene.aux += float(rng.normal(0.0, sigma_size * 0.35))
+        elif gene.kind != "circle":
+            gene.angle_deg += float(rng.normal(0.0, sigma_angle))
     elif mode == 4:
         gene.op = "add" if gene.op == "cut" else "cut"
+    elif mode == 5:
+        if gene.kind == "circle":
+            gene.axis = str(rng.choice(np.asarray(("x", "y", "z"), dtype=object)))
+            if rng.random() < 0.45:
+                gene.height *= float(math.exp(rng.normal(0.0, mutation_strength * 0.28)))
+        else:
+            gene.angle_deg += float(rng.normal(0.0, sigma_angle * 0.65))
+            if rng.random() < 0.35:
+                center_z += float(rng.normal(0.0, sigma_z * 0.8))
+    elif mode == 6:
+        center_z += float(rng.normal(0.0, sigma_z))
+        if gene.kind != "circle":
+            gene.angle_deg += float(rng.normal(0.0, sigma_angle * 0.45))
+        if rng.random() < 0.4:
+            gene.center_x += float(rng.normal(0.0, sigma_xy * 0.6))
+            gene.center_y += float(rng.normal(0.0, sigma_xy * 0.6))
     else:
         gene.kind = str(rng.choice(SUPPORTED_KINDS))
         if gene.kind == "circle":
             gene.size_x = max(gene.size_x, bounds.min_size)
             gene.size_y = gene.size_x
             gene.aux = 0.0
+            if gene.axis not in {"x", "y", "z"}:
+                gene.axis = "z"
+            gene.angle_deg = 0.0
         elif gene.kind == "rounded_rectangle":
             gene.aux = float(rng.uniform(0.0, min(gene.size_x, gene.size_y) * 0.5))
+            gene.axis = "z"
         else:
             gene.aux = 0.0
+            gene.axis = "z"
+
+    gene.center_z = center_z
+    gene.z_start = float(center_z - gene.height * 0.5)
 
     normalized = clamp_gene(gene, bounds)
     gene.kind = normalized.kind
@@ -317,6 +357,9 @@ def mutate_gene(
     gene.size_x = normalized.size_x
     gene.size_y = normalized.size_y
     gene.aux = normalized.aux
+    gene.center_z = normalized.center_z
+    gene.axis = normalized.axis
+    gene.angle_deg = normalized.angle_deg
     return gene
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dsl import CandidateProgram, SearchBounds, clamp_gene, normalize_program, primitive_volume
+from dsl import CandidateProgram, SearchBounds, clamp_gene, gene_center_z, normalize_program, primitive_volume
 from mutations import mutate_gene, mutate_program, perturb_continuous
 from scoring import ProgramScorer, ScoreWeights
 
@@ -17,11 +17,13 @@ def _candidate_signature(candidate: CandidateProgram) -> tuple[tuple[object, ...
                 gene.op,
                 round(gene.center_x, 3),
                 round(gene.center_y, 3),
-                round(gene.z_start, 3),
+                round(gene_center_z(gene), 3),
                 round(gene.height, 3),
                 round(gene.size_x, 3),
                 round(gene.size_y, 3),
                 round(gene.aux, 3),
+                gene.axis,
+                round(gene.angle_deg, 2),
             )
         )
     return tuple(rows)
@@ -98,13 +100,14 @@ def _coordinate_proposals(
         ops: list[tuple[str, float]] = [
             ("center_x", xy_step),
             ("center_y", xy_step),
-            ("z_start", z_step),
+            ("center_z", z_step),
             ("height", z_step),
         ]
         if gene.kind == "circle":
             ops.append(("radius", size_step))
         else:
             ops.extend([("size_x", size_step), ("size_y", size_step)])
+            ops.append(("angle_deg", max(5.0, scale * 22.0)))
             if gene.kind == "rounded_rectangle":
                 ops.append(("aux", radius_step))
 
@@ -117,6 +120,9 @@ def _coordinate_proposals(
                 if field == "radius":
                     child_gene.size_x += offset
                     child_gene.size_y = child_gene.size_x
+                elif field == "center_z":
+                    child_gene.center_z = float(gene_center_z(child_gene) + offset)
+                    child_gene.z_start = float(child_gene.center_z - child_gene.height * 0.5)
                 else:
                     setattr(child_gene, field, float(getattr(child_gene, field) + offset))
                     if child_gene.kind == "circle" and field in {"size_x", "size_y"}:

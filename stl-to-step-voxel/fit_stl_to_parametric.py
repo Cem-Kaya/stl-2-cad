@@ -972,15 +972,22 @@ def _draw_primitive_runtime(primitive: dict[str, Any], mode: Any = None) -> None
 
     kind = primitive["kind"]
     params = primitive["params"]
+    rotation = float(params.get("rotation_deg", 0.0))
     if kind == "circle":
         Circle(params["radius"], mode=mode)
     elif kind == "annulus":
         Circle(params["outer_radius"], mode=mode)
         Circle(params["inner_radius"], mode=Mode.SUBTRACT)
     elif kind == "rectangle":
-        Rectangle(params["width"], params["height"], mode=mode)
+        Rectangle(params["width"], params["height"], rotation=rotation, mode=mode)
     elif kind == "rounded_rectangle":
-        RectangleRounded(params["width"], params["height"], params["radius"], mode=mode)
+        RectangleRounded(
+            params["width"],
+            params["height"],
+            params["radius"],
+            rotation=rotation,
+            mode=mode,
+        )
     elif kind in ("triangle", "polygon"):
         B3DPolygon(*params["points"], mode=mode)
     elif kind == "profile":
@@ -1166,11 +1173,38 @@ def build_part_from_spec(
                         )
                         extrude(face, amount=item["height"], mode=mode)
             else:
-                with BuildSketch(Plane(origin=(0, 0, plane_z), z_dir=(0, 0, 1))):
-                    for center in feature["centers"]:
-                        with Locations(tuple(center)):
-                            _draw_primitive_runtime(feature["primitive"], Mode.ADD)
-                extrude(amount=feature["height"], mode=mode)
+                primitive = feature["primitive"]
+                params = dict(primitive.get("params", {}))
+                params["rotation_deg"] = float(
+                    feature.get("rotation_deg", primitive.get("rotation_deg", params.get("rotation_deg", 0.0)))
+                )
+                sketch_primitive = dict(primitive)
+                sketch_primitive["params"] = params
+                axis = str(feature.get("axis", primitive.get("axis", "z")))
+
+                centers_3d = feature.get("centers_3d")
+                if centers_3d is None:
+                    if "center_3d" in feature:
+                        centers_3d = [feature["center_3d"]]
+                    else:
+                        centers_2d = feature.get("centers", [])
+                        center_z = float(feature.get("z_start", plane_z) + feature["height"] * 0.5)
+                        centers_3d = [[float(center[0]), float(center[1]), center_z] for center in centers_2d]
+
+                for center in centers_3d:
+                    cx = float(center[0])
+                    cy = float(center[1])
+                    cz = float(center[2])
+                    half_height = float(feature["height"]) * 0.5
+                    if axis == "x":
+                        plane = Plane(origin=(cx - half_height, cy, cz), z_dir=(1, 0, 0), x_dir=(0, 1, 0))
+                    elif axis == "y":
+                        plane = Plane(origin=(cx, cy - half_height, cz), z_dir=(0, 1, 0), x_dir=(1, 0, 0))
+                    else:
+                        plane = Plane(origin=(cx, cy, cz - half_height), z_dir=(0, 0, 1), x_dir=(1, 0, 0))
+                    with BuildSketch(plane):
+                        _draw_primitive_runtime(sketch_primitive, Mode.ADD)
+                    extrude(amount=feature["height"], mode=mode)
 
     return part.part
 

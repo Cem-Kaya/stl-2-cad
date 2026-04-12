@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import trimesh
 
-from dsl import CandidateProgram, SearchBounds
+from dsl import CandidateProgram, SearchBounds, gene_center_z
 
 try:  # pragma: no cover
     import torch
@@ -17,6 +17,7 @@ except Exception:  # pragma: no cover
 
 
 KIND_TO_CODE = {"rectangle": 0, "circle": 1, "rounded_rectangle": 2}
+AXIS_TO_CODE = {"x": 0, "y": 1, "z": 2}
 
 
 @dataclass
@@ -195,11 +196,13 @@ class ProgramScorer:
         op = np.zeros((batch, max_primitives), dtype=np.int8)
         center_x = np.zeros((batch, max_primitives), dtype=np.float32)
         center_y = np.zeros((batch, max_primitives), dtype=np.float32)
-        z_start = np.zeros((batch, max_primitives), dtype=np.float32)
+        center_z = np.zeros((batch, max_primitives), dtype=np.float32)
         height = np.zeros((batch, max_primitives), dtype=np.float32)
         size_x = np.zeros((batch, max_primitives), dtype=np.float32)
         size_y = np.zeros((batch, max_primitives), dtype=np.float32)
         aux = np.zeros((batch, max_primitives), dtype=np.float32)
+        axis = np.zeros((batch, max_primitives), dtype=np.int8)
+        angle_deg = np.zeros((batch, max_primitives), dtype=np.float32)
         primitive_count = np.zeros(batch, dtype=np.int16)
 
         for row, candidate in enumerate(candidates):
@@ -210,11 +213,13 @@ class ProgramScorer:
                 op[row, col] = 1 if gene.op == "add" else 0
                 center_x[row, col] = gene.center_x
                 center_y[row, col] = gene.center_y
-                z_start[row, col] = gene.z_start
+                center_z[row, col] = gene_center_z(gene)
                 height[row, col] = gene.height
                 size_x[row, col] = gene.size_x
                 size_y[row, col] = gene.size_y
                 aux[row, col] = gene.aux
+                axis[row, col] = AXIS_TO_CODE.get(gene.axis, AXIS_TO_CODE["z"])
+                angle_deg[row, col] = gene.angle_deg
 
         return {
             "active": active,
@@ -222,11 +227,13 @@ class ProgramScorer:
             "op": op,
             "center_x": center_x,
             "center_y": center_y,
-            "z_start": z_start,
+            "center_z": center_z,
             "height": height,
             "size_x": size_x,
             "size_y": size_y,
             "aux": aux,
+            "axis": axis,
+            "angle_deg": angle_deg,
             "primitive_count": primitive_count,
         }
 
@@ -241,65 +248,107 @@ class ProgramScorer:
         op = encoded["op"]
         center_x = encoded["center_x"]
         center_y = encoded["center_y"]
-        z_start = encoded["z_start"]
+        center_z = encoded["center_z"]
         height = encoded["height"]
         size_x = encoded["size_x"]
         size_y = encoded["size_y"]
         aux = encoded["aux"]
+        axis = encoded["axis"]
+        angle_deg = encoded["angle_deg"]
         primitive_count = encoded["primitive_count"]
         batch = active.shape[0]
 
         occ = np.zeros((batch,) + self._target_np.shape, dtype=bool)
-        x_grid = self._xs_np[None, :, None]
-        y_grid = self._ys_np[None, None, :]
-        z_grid = self._zs_np[None, :]
+        x_grid = self._xs_np[None, :, None, None]
+        y_grid = self._ys_np[None, None, :, None]
+        z_grid = self._zs_np[None, None, None, :]
 
         for column in range(active.shape[1]):
             active_col = active[:, column]
             if not active_col.any():
                 continue
 
-            mask_xy = np.zeros((batch, self._target_np.shape[0], self._target_np.shape[1]), dtype=bool)
-
             rect_idx = active_col & (kind[:, column] == KIND_TO_CODE["rectangle"])
             if rect_idx.any():
-                dx = np.abs(x_grid - center_x[rect_idx, column][:, None, None])
-                dy = np.abs(y_grid - center_y[rect_idx, column][:, None, None])
-                mask_xy[rect_idx] = (dx <= size_x[rect_idx, column][:, None, None] * 0.5) & (
-                    dy <= size_y[rect_idx, column][:, None, None] * 0.5
+                theta = np.deg2rad(angle_deg[rect_idx, column])[:, None, None, None]
+                cos_t = np.cos(theta)
+                sin_t = np.sin(theta)
+                x_rel = x_grid - center_x[rect_idx, column][:, None, None, None]
+                y_rel = y_grid - center_y[rect_idx, column][:, None, None, None]
+                local_x = cos_t * x_rel + sin_t * y_rel
+                local_y = -sin_t * x_rel + cos_t * y_rel
+                mask_xy = (np.abs(local_x) <= size_x[rect_idx, column][:, None, None, None] * 0.5) & (
+                    np.abs(local_y) <= size_y[rect_idx, column][:, None, None, None] * 0.5
                 )
+                mask_z = np.abs(z_grid - center_z[rect_idx, column][:, None, None, None]) <= (
+                    height[rect_idx, column][:, None, None, None] * 0.5
+                )
+                primitive = mask_xy & mask_z
+                add_rect = rect_idx & (op[:, column] == 1)
+                if add_rect.any():
+                    occ[add_rect] |= primitive[add_rect[rect_idx]]
+                cut_rect = rect_idx & (op[:, column] == 0)
+                if cut_rect.any():
+                    occ[cut_rect] &= ~primitive[cut_rect[rect_idx]]
 
             circle_idx = active_col & (kind[:, column] == KIND_TO_CODE["circle"])
             if circle_idx.any():
-                dx = x_grid - center_x[circle_idx, column][:, None, None]
-                dy = y_grid - center_y[circle_idx, column][:, None, None]
-                radius_sq = size_x[circle_idx, column][:, None, None] ** 2
-                mask_xy[circle_idx] = (dx * dx + dy * dy) <= radius_sq
+                axis_col = axis[circle_idx, column]
+                radius_sq = size_x[circle_idx, column][:, None, None, None] ** 2
+                primitive = np.zeros((circle_idx.sum(),) + self._target_np.shape, dtype=bool)
+                x_sel = x_grid - center_x[circle_idx, column][:, None, None, None]
+                y_sel = y_grid - center_y[circle_idx, column][:, None, None, None]
+                z_sel = z_grid - center_z[circle_idx, column][:, None, None, None]
+                half_len = height[circle_idx, column][:, None, None, None] * 0.5
+                z_mask = axis_col == AXIS_TO_CODE["z"]
+                if z_mask.any():
+                    radial = (x_sel[z_mask] * x_sel[z_mask] + y_sel[z_mask] * y_sel[z_mask]) <= radius_sq[z_mask]
+                    axial = np.abs(z_sel[z_mask]) <= half_len[z_mask]
+                    primitive[z_mask] = radial & axial
+                x_mask = axis_col == AXIS_TO_CODE["x"]
+                if x_mask.any():
+                    radial = (y_sel[x_mask] * y_sel[x_mask] + z_sel[x_mask] * z_sel[x_mask]) <= radius_sq[x_mask]
+                    axial = np.abs(x_sel[x_mask]) <= half_len[x_mask]
+                    primitive[x_mask] = radial & axial
+                y_mask = axis_col == AXIS_TO_CODE["y"]
+                if y_mask.any():
+                    radial = (x_sel[y_mask] * x_sel[y_mask] + z_sel[y_mask] * z_sel[y_mask]) <= radius_sq[y_mask]
+                    axial = np.abs(y_sel[y_mask]) <= half_len[y_mask]
+                    primitive[y_mask] = radial & axial
+                add_circle = circle_idx & (op[:, column] == 1)
+                if add_circle.any():
+                    occ[add_circle] |= primitive[add_circle[circle_idx]]
+                cut_circle = circle_idx & (op[:, column] == 0)
+                if cut_circle.any():
+                    occ[cut_circle] &= ~primitive[cut_circle[circle_idx]]
 
             rounded_idx = active_col & (kind[:, column] == KIND_TO_CODE["rounded_rectangle"])
             if rounded_idx.any():
-                dx = np.abs(x_grid - center_x[rounded_idx, column][:, None, None])
-                dy = np.abs(y_grid - center_y[rounded_idx, column][:, None, None])
-                width = size_x[rounded_idx, column][:, None, None]
-                depth = size_y[rounded_idx, column][:, None, None]
-                radius = np.minimum(aux[rounded_idx, column][:, None, None], np.minimum(width, depth) * 0.5)
+                theta = np.deg2rad(angle_deg[rounded_idx, column])[:, None, None, None]
+                cos_t = np.cos(theta)
+                sin_t = np.sin(theta)
+                x_rel = x_grid - center_x[rounded_idx, column][:, None, None, None]
+                y_rel = y_grid - center_y[rounded_idx, column][:, None, None, None]
+                local_x = cos_t * x_rel + sin_t * y_rel
+                local_y = -sin_t * x_rel + cos_t * y_rel
+                width = size_x[rounded_idx, column][:, None, None, None]
+                depth = size_y[rounded_idx, column][:, None, None, None]
+                radius = np.minimum(aux[rounded_idx, column][:, None, None, None], np.minimum(width, depth) * 0.5)
                 core_x = np.maximum(width * 0.5 - radius, 0.0)
                 core_y = np.maximum(depth * 0.5 - radius, 0.0)
-                qx = np.maximum(dx - core_x, 0.0)
-                qy = np.maximum(dy - core_y, 0.0)
-                mask_xy[rounded_idx] = (qx * qx + qy * qy) <= (radius * radius)
-
-            z0 = z_start[:, column][:, None]
-            z1 = z0 + height[:, column][:, None]
-            mask_z = active_col[:, None] & (z_grid >= z0) & (z_grid < z1)
-            primitive = mask_xy[..., None] & mask_z[:, None, None, :]
-
-            add_idx = active_col & (op[:, column] == 1)
-            if add_idx.any():
-                occ[add_idx] |= primitive[add_idx]
-            cut_idx = active_col & (op[:, column] == 0)
-            if cut_idx.any():
-                occ[cut_idx] &= ~primitive[cut_idx]
+                qx = np.maximum(np.abs(local_x) - core_x, 0.0)
+                qy = np.maximum(np.abs(local_y) - core_y, 0.0)
+                mask_xy = (qx * qx + qy * qy) <= (radius * radius)
+                mask_z = np.abs(z_grid - center_z[rounded_idx, column][:, None, None, None]) <= (
+                    height[rounded_idx, column][:, None, None, None] * 0.5
+                )
+                primitive = mask_xy & mask_z
+                add_rounded = rounded_idx & (op[:, column] == 1)
+                if add_rounded.any():
+                    occ[add_rounded] |= primitive[add_rounded[rounded_idx]]
+                cut_rounded = rounded_idx & (op[:, column] == 0)
+                if cut_rounded.any():
+                    occ[cut_rounded] &= ~primitive[cut_rounded[rounded_idx]]
 
         target = self._target_np[None, ...]
         intersection = np.count_nonzero(occ & target, axis=(1, 2, 3)).astype(np.float32)
@@ -349,69 +398,107 @@ class ProgramScorer:
         op = torch.as_tensor(encoded["op"], device=self.device, dtype=torch.int64)
         center_x = torch.as_tensor(encoded["center_x"], device=self.device, dtype=torch.float32)
         center_y = torch.as_tensor(encoded["center_y"], device=self.device, dtype=torch.float32)
-        z_start = torch.as_tensor(encoded["z_start"], device=self.device, dtype=torch.float32)
+        center_z = torch.as_tensor(encoded["center_z"], device=self.device, dtype=torch.float32)
         height = torch.as_tensor(encoded["height"], device=self.device, dtype=torch.float32)
         size_x = torch.as_tensor(encoded["size_x"], device=self.device, dtype=torch.float32)
         size_y = torch.as_tensor(encoded["size_y"], device=self.device, dtype=torch.float32)
         aux = torch.as_tensor(encoded["aux"], device=self.device, dtype=torch.float32)
+        axis = torch.as_tensor(encoded["axis"], device=self.device, dtype=torch.int64)
+        angle_deg = torch.as_tensor(encoded["angle_deg"], device=self.device, dtype=torch.float32)
         primitive_count = torch.as_tensor(encoded["primitive_count"], device=self.device, dtype=torch.float32)
 
         batch = active.shape[0]
         occ = torch.zeros((batch,) + self._target_t.shape, device=self.device, dtype=torch.bool)
-        x_grid = self._xs_t.view(1, -1, 1)
-        y_grid = self._ys_t.view(1, 1, -1)
-        z_grid = self._zs_t.view(1, -1)
+        x_grid = self._xs_t.view(1, -1, 1, 1)
+        y_grid = self._ys_t.view(1, 1, -1, 1)
+        z_grid = self._zs_t.view(1, 1, 1, -1)
 
         for column in range(active.shape[1]):
             active_col = active[:, column]
             if not bool(active_col.any().item()):
                 continue
 
-            mask_xy = torch.zeros(
-                (batch, self._target_t.shape[0], self._target_t.shape[1]),
-                device=self.device,
-                dtype=torch.bool,
-            )
-
             rect_idx = active_col & (kind[:, column] == KIND_TO_CODE["rectangle"])
             if bool(rect_idx.any().item()):
-                dx = torch.abs(x_grid - center_x[rect_idx, column].view(-1, 1, 1))
-                dy = torch.abs(y_grid - center_y[rect_idx, column].view(-1, 1, 1))
-                mask_xy[rect_idx] = (dx <= size_x[rect_idx, column].view(-1, 1, 1) * 0.5) & (
-                    dy <= size_y[rect_idx, column].view(-1, 1, 1) * 0.5
+                theta = torch.deg2rad(angle_deg[rect_idx, column]).view(-1, 1, 1, 1)
+                cos_t = torch.cos(theta)
+                sin_t = torch.sin(theta)
+                x_rel = x_grid - center_x[rect_idx, column].view(-1, 1, 1, 1)
+                y_rel = y_grid - center_y[rect_idx, column].view(-1, 1, 1, 1)
+                local_x = cos_t * x_rel + sin_t * y_rel
+                local_y = -sin_t * x_rel + cos_t * y_rel
+                mask_xy = (torch.abs(local_x) <= size_x[rect_idx, column].view(-1, 1, 1, 1) * 0.5) & (
+                    torch.abs(local_y) <= size_y[rect_idx, column].view(-1, 1, 1, 1) * 0.5
                 )
+                mask_z = torch.abs(z_grid - center_z[rect_idx, column].view(-1, 1, 1, 1)) <= (
+                    height[rect_idx, column].view(-1, 1, 1, 1) * 0.5
+                )
+                primitive = mask_xy & mask_z
+                add_rect = rect_idx & (op[:, column] == 1)
+                if bool(add_rect.any().item()):
+                    occ[add_rect] |= primitive[add_rect[rect_idx]]
+                cut_rect = rect_idx & (op[:, column] == 0)
+                if bool(cut_rect.any().item()):
+                    occ[cut_rect] &= ~primitive[cut_rect[rect_idx]]
 
             circle_idx = active_col & (kind[:, column] == KIND_TO_CODE["circle"])
             if bool(circle_idx.any().item()):
-                dx = x_grid - center_x[circle_idx, column].view(-1, 1, 1)
-                dy = y_grid - center_y[circle_idx, column].view(-1, 1, 1)
-                radius_sq = size_x[circle_idx, column].view(-1, 1, 1) ** 2
-                mask_xy[circle_idx] = (dx * dx + dy * dy) <= radius_sq
+                axis_col = axis[circle_idx, column]
+                primitive = torch.zeros((int(circle_idx.sum().item()),) + self._target_t.shape, device=self.device, dtype=torch.bool)
+                x_sel = x_grid - center_x[circle_idx, column].view(-1, 1, 1, 1)
+                y_sel = y_grid - center_y[circle_idx, column].view(-1, 1, 1, 1)
+                z_sel = z_grid - center_z[circle_idx, column].view(-1, 1, 1, 1)
+                radius_sq = size_x[circle_idx, column].view(-1, 1, 1, 1) ** 2
+                half_len = height[circle_idx, column].view(-1, 1, 1, 1) * 0.5
+                z_mask = axis_col == AXIS_TO_CODE["z"]
+                if bool(z_mask.any().item()):
+                    radial = (x_sel[z_mask] * x_sel[z_mask] + y_sel[z_mask] * y_sel[z_mask]) <= radius_sq[z_mask]
+                    axial = torch.abs(z_sel[z_mask]) <= half_len[z_mask]
+                    primitive[z_mask] = radial & axial
+                x_mask = axis_col == AXIS_TO_CODE["x"]
+                if bool(x_mask.any().item()):
+                    radial = (y_sel[x_mask] * y_sel[x_mask] + z_sel[x_mask] * z_sel[x_mask]) <= radius_sq[x_mask]
+                    axial = torch.abs(x_sel[x_mask]) <= half_len[x_mask]
+                    primitive[x_mask] = radial & axial
+                y_mask = axis_col == AXIS_TO_CODE["y"]
+                if bool(y_mask.any().item()):
+                    radial = (x_sel[y_mask] * x_sel[y_mask] + z_sel[y_mask] * z_sel[y_mask]) <= radius_sq[y_mask]
+                    axial = torch.abs(y_sel[y_mask]) <= half_len[y_mask]
+                    primitive[y_mask] = radial & axial
+                add_circle = circle_idx & (op[:, column] == 1)
+                if bool(add_circle.any().item()):
+                    occ[add_circle] |= primitive[add_circle[circle_idx]]
+                cut_circle = circle_idx & (op[:, column] == 0)
+                if bool(cut_circle.any().item()):
+                    occ[cut_circle] &= ~primitive[cut_circle[circle_idx]]
 
             rounded_idx = active_col & (kind[:, column] == KIND_TO_CODE["rounded_rectangle"])
             if bool(rounded_idx.any().item()):
-                dx = torch.abs(x_grid - center_x[rounded_idx, column].view(-1, 1, 1))
-                dy = torch.abs(y_grid - center_y[rounded_idx, column].view(-1, 1, 1))
-                width = size_x[rounded_idx, column].view(-1, 1, 1)
-                depth = size_y[rounded_idx, column].view(-1, 1, 1)
-                radius = torch.minimum(aux[rounded_idx, column].view(-1, 1, 1), torch.minimum(width, depth) * 0.5)
+                theta = torch.deg2rad(angle_deg[rounded_idx, column]).view(-1, 1, 1, 1)
+                cos_t = torch.cos(theta)
+                sin_t = torch.sin(theta)
+                x_rel = x_grid - center_x[rounded_idx, column].view(-1, 1, 1, 1)
+                y_rel = y_grid - center_y[rounded_idx, column].view(-1, 1, 1, 1)
+                local_x = cos_t * x_rel + sin_t * y_rel
+                local_y = -sin_t * x_rel + cos_t * y_rel
+                width = size_x[rounded_idx, column].view(-1, 1, 1, 1)
+                depth = size_y[rounded_idx, column].view(-1, 1, 1, 1)
+                radius = torch.minimum(aux[rounded_idx, column].view(-1, 1, 1, 1), torch.minimum(width, depth) * 0.5)
                 core_x = torch.clamp(width * 0.5 - radius, min=0.0)
                 core_y = torch.clamp(depth * 0.5 - radius, min=0.0)
-                qx = torch.clamp(dx - core_x, min=0.0)
-                qy = torch.clamp(dy - core_y, min=0.0)
-                mask_xy[rounded_idx] = (qx * qx + qy * qy) <= (radius * radius)
-
-            z0 = z_start[:, column].view(-1, 1)
-            z1 = z0 + height[:, column].view(-1, 1)
-            mask_z = active_col.view(-1, 1) & (z_grid >= z0) & (z_grid < z1)
-            primitive = mask_xy.unsqueeze(-1) & mask_z.view(batch, 1, 1, -1)
-
-            add_idx = active_col & (op[:, column] == 1)
-            if bool(add_idx.any().item()):
-                occ[add_idx] |= primitive[add_idx]
-            cut_idx = active_col & (op[:, column] == 0)
-            if bool(cut_idx.any().item()):
-                occ[cut_idx] &= ~primitive[cut_idx]
+                qx = torch.clamp(torch.abs(local_x) - core_x, min=0.0)
+                qy = torch.clamp(torch.abs(local_y) - core_y, min=0.0)
+                mask_xy = (qx * qx + qy * qy) <= (radius * radius)
+                mask_z = torch.abs(z_grid - center_z[rounded_idx, column].view(-1, 1, 1, 1)) <= (
+                    height[rounded_idx, column].view(-1, 1, 1, 1) * 0.5
+                )
+                primitive = mask_xy & mask_z
+                add_rounded = rounded_idx & (op[:, column] == 1)
+                if bool(add_rounded.any().item()):
+                    occ[add_rounded] |= primitive[add_rounded[rounded_idx]]
+                cut_rounded = rounded_idx & (op[:, column] == 0)
+                if bool(cut_rounded.any().item()):
+                    occ[cut_rounded] &= ~primitive[cut_rounded[rounded_idx]]
 
         target = self._target_t.unsqueeze(0)
         intersection = torch.count_nonzero(occ & target, dim=(1, 2, 3)).to(torch.float32)
