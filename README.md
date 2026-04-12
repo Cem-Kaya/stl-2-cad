@@ -31,3 +31,13 @@ Use [`stl-to-step-ga-hybrid`](./stl-to-step-ga-hybrid) if you want to:
 - work on the search-based CAD program synthesis idea
 - evolve operation sequences
 - mix discrete mutation with continuous parameter refinement
+
+## GA Timelapses
+
+Bottom enclosure run:
+
+![Bottom GA Timelapse](./output/ga-long-run-8192-cpu-w22/3d-enclosure-for-xiao-bus-servo-adapter-bottom_ga_hybrid_timelapse.gif)
+
+Top enclosure run:
+
+![Top GA Timelapse](./output/ga-top-long-run-16384/3d-enclosure-for-xiao-bus-servo-adapter-top_ga_hybrid_timelapse.gif)
